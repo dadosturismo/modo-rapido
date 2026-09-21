@@ -1,4 +1,4 @@
-const CACHE = 'atendimentos-pwa-v35';
+const CACHE = 'atendimentos-pwa-v36';
 const ARQUIVOS = ['./','./index.html','./rapido/','./rapido/index.html','./app.js','./manifest.webmanifest','./logo.png','./icon.png'];
 self.addEventListener('install', e => e.waitUntil(caches.open(CACHE).then(c => c.addAll(ARQUIVOS)).then(() => self.skipWaiting())));
 self.addEventListener('activate', e => e.waitUntil(caches.keys().then(keys => Promise.all(keys.filter(key => key !== CACHE).map(key => caches.delete(key)))).then(() => self.clients.claim())));
