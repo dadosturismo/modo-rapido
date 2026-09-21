@@ -280,12 +280,8 @@ function renderQuickOriginDetail(row, initial = {}) {
 }
 
 function addQuickOrigin(initial = {}) {
-  const rows = quickOriginRows();
-  const total = Number($("quickGroupTotal").value) || 6;
-  const sourceQuantity = [...rows].reverse().map((row) => row.querySelector(".quick-quantity")).find((input) => Number(input.value) > 1);
   const hasInitialQuantity = Number.isInteger(initial.quantidadeGrupo);
   const quantity = hasInitialQuantity ? initial.quantidadeGrupo : 1;
-  if (!hasInitialQuantity && sourceQuantity) sourceQuantity.value = String(Number(sourceQuantity.value) - 1);
 
   const row = document.createElement("article");
   row.className = "quick-origin";
@@ -325,7 +321,7 @@ function addQuickOrigin(initial = {}) {
   quantityInput.min = "1";
   quantityInput.max = "100";
   quantityInput.inputMode = "numeric";
-  quantityInput.value = String(Math.min(quantity, total));
+  quantityInput.value = String(quantity);
   const detail = document.createElement("div");
   detail.className = "quick-detail";
   typeField.append(typeLabel, typeSelect);
@@ -344,15 +340,11 @@ function addQuickOrigin(initial = {}) {
 }
 
 function resetQuickRegistration() {
-  $("quickGroupTotal").value = "6";
   $("quickNotes").value = "";
   $("quickOrigins").replaceChildren();
-  addQuickOrigin({ tipo: "cidade", quantidadeGrupo: 6 });
 }
 
 function quickRegistrationValidation() {
-  const total = Number($("quickGroupTotal").value);
-  if (!Number.isInteger(total) || total < 1 || total > 100) return { valid: false, message: "Informe um grupo entre 1 e 100 pessoas." };
   const origins = [];
   for (const row of quickOriginRows()) {
     const type = row.querySelector(".quick-origin-type").value;
@@ -372,8 +364,8 @@ function quickRegistrationValidation() {
     }
   }
   if (!origins.length) return { valid: false, message: "Adicione ao menos uma origem." };
-  const registered = origins.reduce((sum, origin) => sum + origin.quantidadeGrupo, 0);
-  if (registered !== total) return { valid: false, message: `As origens somam ${registered} de ${total} pessoa(s).` };
+  const total = origins.reduce((sum, origin) => sum + origin.quantidadeGrupo, 0);
+  if (total > 100) return { valid: false, message: "O grupo não pode ter mais de 100 pessoas." };
   return { valid: true, total, origins, message: `${total} pessoa(s) pronta(s) para registrar.` };
 }
 
@@ -396,7 +388,6 @@ function renderRegistrationMode() {
   show($("normalRegistration"), !quickActive);
   show($("quickRegistration"), quickActive);
   $("save").textContent = quickActive ? "Salvar grupo" : "Salvar atendimento";
-  if (quickActive && !quickOriginRows().length) resetQuickRegistration();
 }
 
 function setRegistrationMode(mode) {
@@ -764,8 +755,6 @@ $("changeIdentification").addEventListener("click", () => {
 $("normalMode").addEventListener("click", () => setRegistrationMode("normal"));
 $("quickMode").addEventListener("click", () => setRegistrationMode("quick"));
 $("addQuickOrigin").addEventListener("click", () => addQuickOrigin());
-$("quickGroupTotal").addEventListener("input", updateSaveButton);
-$("quickGroupTotal").addEventListener("change", updateSaveButton);
 $("attraction").addEventListener("change", configureAttraction);
 $("name").addEventListener("blur", () => { lockName(); updateSaveButton(); });
 $("country").addEventListener("input", () => { renderCountrySuggestions(); updateSaveButton(); });
