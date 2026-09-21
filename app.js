@@ -11,10 +11,10 @@ let savedAttraction = "";
 let retryTimer;
 let editingIdentification = false;
 let selectedInformationItems = [];
-let registrationMode = "normal";
 let quickOriginSequence = 0;
 const RENAMED_ATTRACTIONS = { "Torre Panorâmica": "Torre Panorâmica (Recepção)" };
 const ELEVATOR_ATTRACTION = "Torre Panorâmica (Elevador)";
+const IS_QUICK_PAGE = /\/rapido\/?$/.test(location.pathname);
 
 const db = new Promise((resolve, reject) => {
   const request = indexedDB.open(DB_NAME, 3);
@@ -377,29 +377,11 @@ function updateQuickGroupSummary() {
 }
 
 function quickModeIsActive() {
-  return registrationMode === "quick" && $("attraction").value === ELEVATOR_ATTRACTION;
+  return IS_QUICK_PAGE;
 }
 
 function renderRegistrationMode() {
-  const quickActive = quickModeIsActive();
-  $("normalMode").setAttribute("aria-pressed", String(!quickActive));
-  $("quickMode").setAttribute("aria-pressed", String(quickActive));
-  $("quickMode").disabled = !options?.atrativos?.[ELEVATOR_ATTRACTION];
-  show($("normalRegistration"), !quickActive);
-  show($("quickRegistration"), quickActive);
-  $("save").textContent = quickActive ? "Salvar grupo" : "Salvar atendimento";
-}
-
-function setRegistrationMode(mode) {
-  registrationMode = mode === "quick" ? "quick" : "normal";
-  if (registrationMode === "quick" && options?.atrativos?.[ELEVATOR_ATTRACTION]) {
-    $("attraction").value = ELEVATOR_ATTRACTION;
-    savedAttraction = ELEVATOR_ATTRACTION;
-    configureAttraction();
-  }
-  writeValue(PREFERENCES_STORE, registrationMode, "modoRegistro");
-  renderRegistrationMode();
-  updateSaveButton();
+  $("save").textContent = IS_QUICK_PAGE ? "Salvar grupo" : "Salvar atendimento";
 }
 
 function identificationIsComplete() {
@@ -496,11 +478,17 @@ function configureOrigin() {
 }
 
 function configureAttraction() {
-  const config = currentAttraction();
-  if (registrationMode === "quick" && $("attraction").value !== ELEVATOR_ATTRACTION) {
-    registrationMode = "normal";
-    writeValue(PREFERENCES_STORE, registrationMode, "modoRegistro");
+  if (IS_QUICK_PAGE) {
+    if (options?.atrativos?.[ELEVATOR_ATTRACTION]) {
+      $("attraction").value = ELEVATOR_ATTRACTION;
+      savedAttraction = ELEVATOR_ATTRACTION;
+    }
+    renderIdentification();
+    renderRegistrationMode();
+    updateSaveButton();
+    return;
   }
+  const config = currentAttraction();
   if (!config) {
     $("information").disabled = true;
     $("information").required = false;
@@ -539,10 +527,15 @@ function configureAttraction() {
 
 function renderOptions() {
   if (!options) return;
+  if (IS_QUICK_PAGE) {
+    populateSelect($("attraction"), [ELEVATOR_ATTRACTION], "");
+    $("attraction").value = ELEVATOR_ATTRACTION;
+    $("attraction").disabled = false;
+    configureAttraction();
+    return;
+  }
   const savedValue = $("attraction").value || savedAttraction;
-  const attractionToRestore = registrationMode === "quick" && options.atrativos[ELEVATOR_ATTRACTION]
-    ? ELEVATOR_ATTRACTION
-    : (options.atrativos[savedValue] ? savedValue : (RENAMED_ATTRACTIONS[savedValue] || savedValue));
+  const attractionToRestore = options.atrativos[savedValue] ? savedValue : (RENAMED_ATTRACTIONS[savedValue] || savedValue);
   populateSelect($("attraction"), Object.keys(options.atrativos), "Selecione o atrativo");
   populateSelect($("state"), options.estados, "Selecione o estado");
   $("attraction").disabled = false;
@@ -717,9 +710,16 @@ function resetForNextAttendance(name, attraction) {
   $("form").reset();
   editingIdentification = false;
   $("name").value = name;
+  if (IS_QUICK_PAGE) {
+    $("attraction").value = ELEVATOR_ATTRACTION;
+    renderIdentification();
+    resetQuickRegistration();
+    setMessage();
+    updateSaveButton();
+    return;
+  }
   $("attraction").value = attraction;
   configureAttraction();
-  resetQuickRegistration();
   hideCountrySuggestions();
   setMessage();
   updateSaveButton();
@@ -752,55 +752,56 @@ $("changeIdentification").addEventListener("click", () => {
   $("attraction").focus();
 });
 
-$("normalMode").addEventListener("click", () => setRegistrationMode("normal"));
-$("quickMode").addEventListener("click", () => setRegistrationMode("quick"));
-$("addQuickOrigin").addEventListener("click", () => addQuickOrigin());
-$("attraction").addEventListener("change", configureAttraction);
+if (IS_QUICK_PAGE) {
+  $("addQuickOrigin").addEventListener("click", () => addQuickOrigin());
+} else {
+  $("attraction").addEventListener("change", configureAttraction);
+}
 $("name").addEventListener("blur", () => { lockName(); updateSaveButton(); });
-$("country").addEventListener("input", () => { renderCountrySuggestions(); updateSaveButton(); });
-$("country").addEventListener("blur", () => window.setTimeout(hideCountrySuggestions, 150));
-$("country").addEventListener("keydown", (event) => { if (event.key === "Escape") hideCountrySuggestions(); });
-$("information").addEventListener("change", () => {
-  const isOther = $("information").value === "Outros";
-  show($("otherField"), isOther);
-  if (isOther) return $("otherInformation").focus();
-  $("otherInformation").value = "";
-  addSelectedInformation();
-});
-$("otherInformation").addEventListener("keydown", (event) => {
-  if (event.key !== "Enter") return;
-  event.preventDefault();
-  addSelectedInformation();
-});
-$("otherInformation").addEventListener("blur", () => {
-  if ($("information").value === "Outros" && $("otherInformation").value.trim()) addSelectedInformation();
-});
-$("selectedInformations").addEventListener("click", (event) => {
-  const remove = event.target.closest("button[data-index]");
-  if (!remove) return;
-  selectedInformationItems.splice(Number(remove.dataset.index), 1);
-  renderSelectedInformations();
-  updateSaveButton();
-});
-
-document.querySelectorAll('input[name="attendanceType"], input[name="nationality"]').forEach((input) => {
-  input.addEventListener("change", () => { configureOrigin(); updateSaveButton(); });
-});
-["state", "otherInformation", "groupSize", "notes"].forEach((id) => {
-  $(id).addEventListener("input", updateSaveButton);
-  $(id).addEventListener("change", updateSaveButton);
-});
+if (!IS_QUICK_PAGE) {
+  $("country").addEventListener("input", () => { renderCountrySuggestions(); updateSaveButton(); });
+  $("country").addEventListener("blur", () => window.setTimeout(hideCountrySuggestions, 150));
+  $("country").addEventListener("keydown", (event) => { if (event.key === "Escape") hideCountrySuggestions(); });
+  $("information").addEventListener("change", () => {
+    const isOther = $("information").value === "Outros";
+    show($("otherField"), isOther);
+    if (isOther) return $("otherInformation").focus();
+    $("otherInformation").value = "";
+    addSelectedInformation();
+  });
+  $("otherInformation").addEventListener("keydown", (event) => {
+    if (event.key !== "Enter") return;
+    event.preventDefault();
+    addSelectedInformation();
+  });
+  $("otherInformation").addEventListener("blur", () => {
+    if ($("information").value === "Outros" && $("otherInformation").value.trim()) addSelectedInformation();
+  });
+  $("selectedInformations").addEventListener("click", (event) => {
+    const remove = event.target.closest("button[data-index]");
+    if (!remove) return;
+    selectedInformationItems.splice(Number(remove.dataset.index), 1);
+    renderSelectedInformations();
+    updateSaveButton();
+  });
+  document.querySelectorAll('input[name="attendanceType"], input[name="nationality"]').forEach((input) => {
+    input.addEventListener("change", () => { configureOrigin(); updateSaveButton(); });
+  });
+  ["state", "otherInformation", "groupSize", "notes"].forEach((id) => {
+    $(id).addEventListener("input", updateSaveButton);
+    $(id).addEventListener("change", updateSaveButton);
+  });
+}
 
 $("syncNow").addEventListener("click", synchronize);
 window.addEventListener("online", () => { updateStatus(); refreshOptions(); synchronize(); });
 window.addEventListener("offline", updateStatus);
 
 (async () => {
-  if ("serviceWorker" in navigator) navigator.serviceWorker.register("./sw.js");
+  if ("serviceWorker" in navigator) navigator.serviceWorker.register(IS_QUICK_PAGE ? "../sw.js" : "./sw.js");
   $("name").value = await readValue(PREFERENCES_STORE, "nome") || "";
   if ($("name").value) lockName();
-  savedAttraction = await readValue(PREFERENCES_STORE, "atrativo") || localStorage.getItem("atrativo") || "";
-  registrationMode = await readValue(PREFERENCES_STORE, "modoRegistro") === "quick" ? "quick" : "normal";
+  savedAttraction = IS_QUICK_PAGE ? ELEVATOR_ATTRACTION : (await readValue(PREFERENCES_STORE, "atrativo") || localStorage.getItem("atrativo") || "");
   if (savedAttraction) await writeValue(PREFERENCES_STORE, savedAttraction, "atrativo");
   options = await readValue(OPTIONS_STORE, "atual");
   renderOptions();
