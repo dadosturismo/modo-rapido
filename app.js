@@ -11,10 +11,9 @@ let savedAttraction = "";
 let retryTimer;
 let editingIdentification = false;
 let selectedInformationItems = [];
-let quickOriginSequence = 0;
 const RENAMED_ATTRACTIONS = { "Torre Panorâmica": "Torre Panorâmica (Recepção)" };
-const ELEVATOR_ATTRACTION = "Torre Panorâmica (Elevador)";
-const IS_QUICK_PAGE = /\/rapido\/?$/.test(location.pathname);
+const COUNTRIES_ADDED_LOCALLY = ["Escócia", "Inglaterra", "País de Gales", "Irlanda do Norte"];
+const ALLOWED_ATTRACTIONS = ["Torre Panorâmica (Elevador)", "Torre Panorâmica (Recepção)"];
 
 const db = new Promise((resolve, reject) => {
   const request = indexedDB.open(DB_NAME, 3);
@@ -71,7 +70,16 @@ function selected(name) {
 }
 
 function normalize(text) {
-  return String(text || "").normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase();
+  return String(text || "").trim().normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase();
+}
+
+function availableCountries() {
+  return Array.from(new Set([...(options?.paises || []), ...COUNTRIES_ADDED_LOCALLY]));
+}
+
+function canonicalCountry(value) {
+  const typed = normalize(value);
+  return availableCountries().find((country) => normalize(country) === typed) || "";
 }
 
 function setMessage(text = "", isError = false) {
@@ -105,7 +113,7 @@ function populateInformation(config) {
 
 function matchingCountries(filter = "") {
   const text = normalize(filter);
-  return (options?.paises || []).filter((country) => normalize(country).includes(text));
+  return availableCountries().filter((country) => normalize(country).includes(text));
 }
 
 function hideCountrySuggestions() {
@@ -114,7 +122,14 @@ function hideCountrySuggestions() {
 }
 
 function setCountry(country) {
-  $("country").value = country;
+  $("country").value = canonicalCountry(country) || country;
+  hideCountrySuggestions();
+  updateSaveButton();
+}
+
+function commitTypedCountry() {
+  const country = canonicalCountry($("country").value);
+  if (country) $("country").value = country;
   hideCountrySuggestions();
   updateSaveButton();
 }
@@ -184,204 +199,6 @@ function addSelectedInformation() {
 
 function show(element, visible) {
   element.classList.toggle("hidden", !visible);
-}
-
-function quickOriginRows() {
-  return Array.from($("quickOrigins").children);
-}
-
-function updateQuickOriginLabels() {
-  const rows = quickOriginRows();
-  rows.forEach((row, index) => {
-    row.querySelector(".quick-origin-title").textContent = `Origem ${index + 1}`;
-    row.querySelector(".remove-origin").classList.toggle("hidden", rows.length === 1);
-  });
-}
-
-function renderQuickCountrySuggestions(input, suggestions) {
-  const countries = matchingCountries(input.value);
-  suggestions.replaceChildren();
-  if (!input.value.trim() || !countries.length) return show(suggestions, false);
-  countries.forEach((country) => {
-    const option = document.createElement("button");
-    option.type = "button";
-    option.className = "suggestion";
-    option.role = "option";
-    option.textContent = country;
-    const selectCountry = () => {
-      input.value = country;
-      show(suggestions, false);
-      updateSaveButton();
-    };
-    option.addEventListener("pointerdown", (event) => { event.preventDefault(); selectCountry(); });
-    option.addEventListener("click", selectCountry);
-    suggestions.append(option);
-  });
-  show(suggestions, true);
-}
-
-function renderQuickOriginDetail(row, initial = {}) {
-  const detail = row.querySelector(".quick-detail");
-  const type = row.querySelector(".quick-origin-type").value;
-  const previousState = detail.querySelector(".quick-state")?.value || initial.estadoOrigem || "";
-  const previousCountry = detail.querySelector(".quick-country")?.value || initial.paisOrigem || "";
-  detail.replaceChildren();
-
-  if (type === "cidade") {
-    const helper = document.createElement("p");
-    helper.className = "helper";
-    helper.textContent = "Brasil · Curitiba e Região Metropolitana";
-    detail.append(helper);
-    return;
-  }
-
-  if (type === "brasil") {
-    const field = document.createElement("div");
-    field.className = "field";
-    const label = document.createElement("label");
-    const select = document.createElement("select");
-    label.htmlFor = `quickState${row.dataset.quickOriginId}`;
-    label.textContent = "Estado de origem";
-    select.id = label.htmlFor;
-    select.className = "quick-state";
-    populateSelect(select, options?.estados || [], "Selecione o estado");
-    select.value = previousState;
-    select.addEventListener("change", updateSaveButton);
-    field.append(label, select);
-    detail.append(field);
-    return;
-  }
-
-  if (type === "estrangeiro") {
-    const field = document.createElement("div");
-    field.className = "field";
-    const label = document.createElement("label");
-    const autocomplete = document.createElement("div");
-    const input = document.createElement("input");
-    const suggestions = document.createElement("div");
-    label.htmlFor = `quickCountry${row.dataset.quickOriginId}`;
-    label.textContent = "País de origem";
-    autocomplete.className = "autocomplete";
-    input.id = label.htmlFor;
-    input.className = "quick-country";
-    input.type = "search";
-    input.placeholder = "Digite para localizar o país";
-    input.autocomplete = "off";
-    input.value = previousCountry;
-    suggestions.className = "suggestions hidden";
-    suggestions.role = "listbox";
-    input.addEventListener("input", () => { renderQuickCountrySuggestions(input, suggestions); updateSaveButton(); });
-    input.addEventListener("blur", () => window.setTimeout(() => show(suggestions, false), 150));
-    input.addEventListener("keydown", (event) => { if (event.key === "Escape") show(suggestions, false); });
-    autocomplete.append(input, suggestions);
-    field.append(label, autocomplete);
-    detail.append(field);
-  }
-}
-
-function addQuickOrigin(initial = {}) {
-  const hasInitialQuantity = Number.isInteger(initial.quantidadeGrupo);
-  const quantity = hasInitialQuantity ? initial.quantidadeGrupo : 1;
-
-  const row = document.createElement("article");
-  row.className = "quick-origin";
-  row.dataset.quickOriginId = String(++quickOriginSequence);
-  const head = document.createElement("div");
-  head.className = "quick-origin-head";
-  const title = document.createElement("strong");
-  title.className = "quick-origin-title";
-  const remove = document.createElement("button");
-  remove.type = "button";
-  remove.className = "remove-origin";
-  remove.textContent = "Remover";
-  const grid = document.createElement("div");
-  grid.className = "quick-grid";
-  const typeField = document.createElement("div");
-  typeField.className = "field";
-  const typeLabel = document.createElement("label");
-  const typeSelect = document.createElement("select");
-  typeLabel.htmlFor = `quickOriginType${row.dataset.quickOriginId}`;
-  typeLabel.textContent = "Origem";
-  typeSelect.id = typeLabel.htmlFor;
-  typeSelect.className = "quick-origin-type";
-  populateSelect(typeSelect, [], "Selecione a origem");
-  typeSelect.add(new Option("Curitiba e Região Metropolitana", "cidade"));
-  typeSelect.add(new Option("Brasil — outro estado", "brasil"));
-  typeSelect.add(new Option("Estrangeiro", "estrangeiro"));
-  typeSelect.value = initial.tipo || "";
-  const quantityField = document.createElement("div");
-  quantityField.className = "field";
-  const quantityLabel = document.createElement("label");
-  const quantityInput = document.createElement("input");
-  quantityLabel.htmlFor = `quickQuantity${row.dataset.quickOriginId}`;
-  quantityLabel.textContent = "Pessoas";
-  quantityInput.id = quantityLabel.htmlFor;
-  quantityInput.className = "quick-quantity";
-  quantityInput.type = "number";
-  quantityInput.min = "1";
-  quantityInput.max = "100";
-  quantityInput.inputMode = "numeric";
-  quantityInput.value = String(quantity);
-  const detail = document.createElement("div");
-  detail.className = "quick-detail";
-  typeField.append(typeLabel, typeSelect);
-  quantityField.append(quantityLabel, quantityInput);
-  grid.append(typeField, quantityField);
-  head.append(title, remove);
-  row.append(head, grid, detail);
-  $("quickOrigins").append(row);
-  typeSelect.addEventListener("change", () => { renderQuickOriginDetail(row); updateSaveButton(); });
-  quantityInput.addEventListener("input", updateSaveButton);
-  quantityInput.addEventListener("change", updateSaveButton);
-  remove.addEventListener("click", () => { row.remove(); updateQuickOriginLabels(); updateSaveButton(); });
-  renderQuickOriginDetail(row, initial);
-  updateQuickOriginLabels();
-  updateSaveButton();
-}
-
-function resetQuickRegistration() {
-  $("quickNotes").value = "";
-  $("quickOrigins").replaceChildren();
-}
-
-function quickRegistrationValidation() {
-  const origins = [];
-  for (const row of quickOriginRows()) {
-    const type = row.querySelector(".quick-origin-type").value;
-    const quantity = Number(row.querySelector(".quick-quantity").value);
-    if (!type) return { valid: false, message: "Selecione a origem de cada grupo." };
-    if (!Number.isInteger(quantity) || quantity < 1 || quantity > 100) return { valid: false, message: "Informe uma quantidade válida para cada origem." };
-    if (type === "cidade") origins.push({ tipoAtendimento: "Curitiba e Região Metropolitana", nacionalidade: "Brasileiro", paisOrigem: "Brasil", estadoOrigem: "Curitiba e Região Metropolitana", quantidadeGrupo: quantity });
-    if (type === "brasil") {
-      const state = row.querySelector(".quick-state")?.value || "";
-      if (!(options?.estados || []).includes(state)) return { valid: false, message: "Selecione o estado de cada origem brasileira." };
-      origins.push({ tipoAtendimento: "Visitante", nacionalidade: "Brasileiro", paisOrigem: "Brasil", estadoOrigem: state, quantidadeGrupo: quantity });
-    }
-    if (type === "estrangeiro") {
-      const country = row.querySelector(".quick-country")?.value || "";
-      if (!(options?.paises || []).includes(country)) return { valid: false, message: "Selecione um país válido para cada origem estrangeira." };
-      origins.push({ tipoAtendimento: "Visitante", nacionalidade: "Estrangeiro", paisOrigem: country, estadoOrigem: "", quantidadeGrupo: quantity });
-    }
-  }
-  if (!origins.length) return { valid: false, message: "Adicione ao menos uma origem." };
-  const total = origins.reduce((sum, origin) => sum + origin.quantidadeGrupo, 0);
-  if (total > 100) return { valid: false, message: "O grupo não pode ter mais de 100 pessoas." };
-  return { valid: true, total, origins, message: `${total} pessoa(s) pronta(s) para registrar.` };
-}
-
-function updateQuickGroupSummary() {
-  const validation = quickRegistrationValidation();
-  $("quickGroupSummary").textContent = validation.message;
-  $("quickGroupSummary").classList.toggle("error", !validation.valid);
-  return validation;
-}
-
-function quickModeIsActive() {
-  return IS_QUICK_PAGE;
-}
-
-function renderRegistrationMode() {
-  $("save").textContent = IS_QUICK_PAGE ? "Salvar grupo" : "Salvar atendimento";
 }
 
 function identificationIsComplete() {
@@ -478,16 +295,6 @@ function configureOrigin() {
 }
 
 function configureAttraction() {
-  if (IS_QUICK_PAGE) {
-    if (options?.atrativos?.[ELEVATOR_ATTRACTION]) {
-      $("attraction").value = ELEVATOR_ATTRACTION;
-      savedAttraction = ELEVATOR_ATTRACTION;
-    }
-    renderIdentification();
-    renderRegistrationMode();
-    updateSaveButton();
-    return;
-  }
   const config = currentAttraction();
   if (!config) {
     $("information").disabled = true;
@@ -499,7 +306,6 @@ function configureAttraction() {
     show($("groupField"), false);
     $("groupSize").required = false;
     renderIdentification();
-    renderRegistrationMode();
     updateSaveButton();
     return;
   }
@@ -521,22 +327,14 @@ function configureAttraction() {
   if ($("name").value.trim()) editingIdentification = false;
   renderIdentification();
   configureOrigin();
-  renderRegistrationMode();
   updateSaveButton();
 }
 
 function renderOptions() {
   if (!options) return;
-  if (IS_QUICK_PAGE) {
-    populateSelect($("attraction"), [ELEVATOR_ATTRACTION], "");
-    $("attraction").value = ELEVATOR_ATTRACTION;
-    $("attraction").disabled = false;
-    configureAttraction();
-    return;
-  }
   const savedValue = $("attraction").value || savedAttraction;
   const attractionToRestore = options.atrativos[savedValue] ? savedValue : (RENAMED_ATTRACTIONS[savedValue] || savedValue);
-  populateSelect($("attraction"), Object.keys(options.atrativos), "Selecione o atrativo");
+  populateSelect($("attraction"), Object.keys(options.atrativos).filter((attraction) => ALLOWED_ATTRACTIONS.includes(attraction)), "Selecione o atrativo");
   populateSelect($("state"), options.estados, "Selecione o estado");
   $("attraction").disabled = false;
 
@@ -550,11 +348,6 @@ function renderOptions() {
 }
 
 function updateSaveButton() {
-  if (quickModeIsActive()) {
-    const validation = updateQuickGroupSummary();
-    $("save").disabled = !(Boolean($("name").value.trim()) && validation.valid);
-    return;
-  }
   const config = currentAttraction();
   const type = selected("attendanceType");
   const nationality = selected("nationality");
@@ -563,7 +356,7 @@ function updateSaveButton() {
   const needsState = cityRegion || brazilian;
   const groupSize = Number($("groupSize").value);
   const informationRequired = requiresInformation(config);
-  const countryIsValid = (options?.paises || []).includes($("country").value);
+  const countryIsValid = Boolean(canonicalCountry($("country").value));
   const ready = Boolean(
     config &&
     $("name").value.trim() &&
@@ -679,18 +472,6 @@ function newId() {
 }
 
 function formData() {
-  if (quickModeIsActive()) {
-    const quickRegistration = quickRegistrationValidation();
-    return {
-      idEnvio: newId(),
-      criadoEm: new Date().toISOString(),
-      atrativo: ELEVATOR_ATTRACTION,
-      nome: $("name").value.trim(),
-      quantidadeGrupo: quickRegistration.total,
-      origensGrupo: quickRegistration.origins,
-      observacoes: $("quickNotes").value.trim()
-    };
-  }
   return {
     idEnvio: newId(),
     criadoEm: new Date().toISOString(),
@@ -698,7 +479,7 @@ function formData() {
     nome: $("name").value.trim(),
     tipoAtendimento: selected("attendanceType"),
     nacionalidade: selected("nationality"),
-    paisOrigem: $("country").value,
+    paisOrigem: canonicalCountry($("country").value),
     estadoOrigem: $("state").value,
     informacoes: selectedInformationItems.map((item) => ({ ...item })),
     quantidadeGrupo: $("groupSize").value,
@@ -710,14 +491,6 @@ function resetForNextAttendance(name, attraction) {
   $("form").reset();
   editingIdentification = false;
   $("name").value = name;
-  if (IS_QUICK_PAGE) {
-    $("attraction").value = ELEVATOR_ATTRACTION;
-    renderIdentification();
-    resetQuickRegistration();
-    setMessage();
-    updateSaveButton();
-    return;
-  }
   $("attraction").value = attraction;
   configureAttraction();
   hideCountrySuggestions();
@@ -752,56 +525,50 @@ $("changeIdentification").addEventListener("click", () => {
   $("attraction").focus();
 });
 
-if (IS_QUICK_PAGE) {
-  $("addQuickOrigin").addEventListener("click", () => addQuickOrigin());
-} else {
-  $("attraction").addEventListener("change", configureAttraction);
-}
+$("attraction").addEventListener("change", configureAttraction);
 $("name").addEventListener("blur", () => { lockName(); updateSaveButton(); });
-if (!IS_QUICK_PAGE) {
-  $("country").addEventListener("input", () => { renderCountrySuggestions(); updateSaveButton(); });
-  $("country").addEventListener("blur", () => window.setTimeout(hideCountrySuggestions, 150));
-  $("country").addEventListener("keydown", (event) => { if (event.key === "Escape") hideCountrySuggestions(); });
-  $("information").addEventListener("change", () => {
-    const isOther = $("information").value === "Outros";
-    show($("otherField"), isOther);
-    if (isOther) return $("otherInformation").focus();
-    $("otherInformation").value = "";
-    addSelectedInformation();
-  });
-  $("otherInformation").addEventListener("keydown", (event) => {
-    if (event.key !== "Enter") return;
-    event.preventDefault();
-    addSelectedInformation();
-  });
-  $("otherInformation").addEventListener("blur", () => {
-    if ($("information").value === "Outros" && $("otherInformation").value.trim()) addSelectedInformation();
-  });
-  $("selectedInformations").addEventListener("click", (event) => {
-    const remove = event.target.closest("button[data-index]");
-    if (!remove) return;
-    selectedInformationItems.splice(Number(remove.dataset.index), 1);
-    renderSelectedInformations();
-    updateSaveButton();
-  });
-  document.querySelectorAll('input[name="attendanceType"], input[name="nationality"]').forEach((input) => {
-    input.addEventListener("change", () => { configureOrigin(); updateSaveButton(); });
-  });
-  ["state", "otherInformation", "groupSize", "notes"].forEach((id) => {
-    $(id).addEventListener("input", updateSaveButton);
-    $(id).addEventListener("change", updateSaveButton);
-  });
-}
+$("country").addEventListener("input", () => { renderCountrySuggestions(); updateSaveButton(); });
+$("country").addEventListener("blur", () => window.setTimeout(commitTypedCountry, 150));
+$("country").addEventListener("keydown", (event) => { if (event.key === "Escape") hideCountrySuggestions(); });
+$("information").addEventListener("change", () => {
+  const isOther = $("information").value === "Outros";
+  show($("otherField"), isOther);
+  if (isOther) return $("otherInformation").focus();
+  $("otherInformation").value = "";
+  addSelectedInformation();
+});
+$("otherInformation").addEventListener("keydown", (event) => {
+  if (event.key !== "Enter") return;
+  event.preventDefault();
+  addSelectedInformation();
+});
+$("otherInformation").addEventListener("blur", () => {
+  if ($("information").value === "Outros" && $("otherInformation").value.trim()) addSelectedInformation();
+});
+$("selectedInformations").addEventListener("click", (event) => {
+  const remove = event.target.closest("button[data-index]");
+  if (!remove) return;
+  selectedInformationItems.splice(Number(remove.dataset.index), 1);
+  renderSelectedInformations();
+  updateSaveButton();
+});
+document.querySelectorAll('input[name="attendanceType"], input[name="nationality"]').forEach((input) => {
+  input.addEventListener("change", () => { configureOrigin(); updateSaveButton(); });
+});
+["state", "otherInformation", "groupSize", "notes"].forEach((id) => {
+  $(id).addEventListener("input", updateSaveButton);
+  $(id).addEventListener("change", updateSaveButton);
+});
 
 $("syncNow").addEventListener("click", synchronize);
 window.addEventListener("online", () => { updateStatus(); refreshOptions(); synchronize(); });
 window.addEventListener("offline", updateStatus);
 
 (async () => {
-  if ("serviceWorker" in navigator) navigator.serviceWorker.register(IS_QUICK_PAGE ? "../sw.js" : "./sw.js");
+  if ("serviceWorker" in navigator) navigator.serviceWorker.register("./sw.js");
   $("name").value = await readValue(PREFERENCES_STORE, "nome") || "";
   if ($("name").value) lockName();
-  savedAttraction = IS_QUICK_PAGE ? ELEVATOR_ATTRACTION : (await readValue(PREFERENCES_STORE, "atrativo") || localStorage.getItem("atrativo") || "");
+  savedAttraction = await readValue(PREFERENCES_STORE, "atrativo") || localStorage.getItem("atrativo") || "";
   if (savedAttraction) await writeValue(PREFERENCES_STORE, savedAttraction, "atrativo");
   options = await readValue(OPTIONS_STORE, "atual");
   renderOptions();
